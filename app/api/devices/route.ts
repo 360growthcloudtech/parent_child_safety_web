@@ -15,6 +15,8 @@ export type DeviceRow = {
   audio_enabled: boolean;
   stream_requested: boolean;
   screen_requested: boolean;
+  app_hidden: boolean;
+  secret_code: string | null;
   battery: number | null;
   charging: boolean | null;
   network: string | null;
@@ -38,6 +40,8 @@ export async function GET() {
               d.audio_enabled,
               d.stream_requested,
               coalesce(d.screen_requested, false) as screen_requested,
+              coalesce(d.app_hidden, false) as app_hidden,
+              d.secret_code,
               d.battery,
               d.charging,
               d.network

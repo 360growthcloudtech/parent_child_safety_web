@@ -24,8 +24,15 @@ export async function GET(request: Request) {
       audio_enabled: boolean;
       stream_requested: boolean;
       screen_requested: boolean;
+      app_hidden: boolean;
+      secret_code: string | null;
+      snapshot_requested: string | null;
     }>(
-      `select camera_facing, audio_enabled, stream_requested, coalesce(screen_requested, false) as screen_requested
+      `select camera_facing, audio_enabled, stream_requested,
+              coalesce(screen_requested, false) as screen_requested,
+              coalesce(app_hidden, false) as app_hidden,
+              secret_code,
+              snapshot_requested
          from devices where id = $1`,
       [deviceId],
     );

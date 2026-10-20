@@ -48,3 +48,13 @@ globalForLive.__liveOwners = owners;
 export function touch(deviceId: string): void {
   lastSeen.set(deviceId, Date.now());
 }
+
+export function removeDeviceFromMemory(deviceId: string): void {
+  frames.delete(deviceId);
+  screenFrames.delete(deviceId);
+  audio.delete(deviceId);
+  audioQueues.delete(deviceId);
+  audioSeq.delete(deviceId);
+  lastSeen.delete(deviceId);
+  owners.delete(deviceId);
+}
