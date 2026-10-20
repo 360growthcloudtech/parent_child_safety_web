@@ -129,6 +129,7 @@ function Dashboard({
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [frameSrc, setFrameSrc] = useState<string | null>(null);
+  const [cameraRotation, setCameraRotation] = useState<number>(0);
   const objectUrl = useRef<string | null>(null);
 
   const loadDevices = useCallback(async () => {
@@ -484,7 +485,10 @@ function Dashboard({
                 <img
                   src={frameSrc}
                   alt={`Live view from ${current.name}`}
-                  className="h-full w-full object-contain"
+                  className="h-full w-full object-contain transition-transform duration-200"
+                  style={{
+                    transform: cameraRotation ? `rotate(${cameraRotation}deg)` : undefined,
+                  }}
                 />
               ) : (
                 <div className="flex h-full w-full items-center justify-center px-6 text-center text-sm text-zinc-400">
@@ -502,15 +506,26 @@ function Dashboard({
                 </span>
               )}
               {frameSrc && (
-                <button
-                  type="button"
-                  onClick={() => saveSnapshot("camera")}
-                  className="absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-lg bg-black/70 px-2.5 py-1.5 text-xs font-medium text-white backdrop-blur-md hover:bg-black/90 active:scale-95 transition-all shadow-md"
-                  title="Take camera snapshot"
-                >
-                  <span>📸</span>
-                  <span>Take snapshot</span>
-                </button>
+                <div className="absolute right-3 top-3 z-10 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCameraRotation((prev) => (prev + 90) % 360)}
+                    className="flex items-center gap-1.5 rounded-lg bg-black/70 px-2.5 py-1.5 text-xs font-medium text-white backdrop-blur-md hover:bg-black/90 active:scale-95 transition-all shadow-md"
+                    title="Rotate camera feed"
+                  >
+                    <span className="text-sm">⟳</span>
+                    <span>Rotate {cameraRotation > 0 ? `(${cameraRotation}°)` : ""}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => saveSnapshot("camera")}
+                    className="flex items-center gap-1.5 rounded-lg bg-black/70 px-2.5 py-1.5 text-xs font-medium text-white backdrop-blur-md hover:bg-black/90 active:scale-95 transition-all shadow-md"
+                    title="Take camera snapshot"
+                  >
+                    <span>📸</span>
+                    <span>Take snapshot</span>
+                  </button>
+                </div>
               )}
               {snapshotToast && (
                 <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white shadow-xl animate-fade-in">
