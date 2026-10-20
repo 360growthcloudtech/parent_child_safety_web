@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: child-safety-ws-relay
+    env: node
+    plan: free
+    rootDir: ws-relay
+    buildCommand: npm install
+    startCommand: node server.mjs
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: INGEST_TOKEN
+        sync: false

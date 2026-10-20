@@ -1,0 +1,17 @@
+{
+  "name": "child-safety-ws-relay",
+  "version": "1.0.0",
+  "description": "High-performance low-latency WebSocket relay for Child Safety live camera & screen mirroring",
+  "main": "server.mjs",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node --watch server.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

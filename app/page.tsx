@@ -35,6 +35,18 @@ function secondsAgo(iso: string): string {
   return `${Math.round(m / 60)}h ago`;
 }
 
+function getWsUrl(): string | null {
+  if (typeof window === "undefined") return null;
+  const envWs = process.env.NEXT_PUBLIC_WS_URL;
+  if (envWs && envWs.trim().length > 0) {
+    return envWs.trim().replace(/\/$/, "");
+  }
+  if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+    return `ws://${window.location.hostname}:8080`;
+  }
+  return null;
+}
+
 export default function Home() {
   const [email, setEmail] = useState<string | null>(null);
   const [checking, setChecking] = useState(true);
@@ -130,6 +142,8 @@ function Dashboard({
   const [error, setError] = useState<string | null>(null);
   const [frameSrc, setFrameSrc] = useState<string | null>(null);
   const [cameraRotation, setCameraRotation] = useState<number>(0);
+  const [cameraStreamType, setCameraStreamType] = useState<"ws" | "polling">("polling");
+  const [screenStreamType, setScreenStreamType] = useState<"ws" | "polling">("polling");
   const objectUrl = useRef<string | null>(null);
 
   const loadDevices = useCallback(async () => {
@@ -155,22 +169,25 @@ function Dashboard({
   useEffect(() => {
     if (!selected || !streaming) {
       setFrameSrc(null);
+      setCameraStreamType("polling");
       return;
     }
     let active = true;
     let timerId: ReturnType<typeof setTimeout> | null = null;
     let inFlight = false;
+    let ws: WebSocket | null = null;
+    let wsActive = false;
 
     const fetchNext = async () => {
-      if (!active || inFlight) return;
+      if (!active || inFlight || wsActive) return;
       inFlight = true;
       try {
         const res = await fetch(`/api/frame/${selected}?t=${Date.now()}`, {
           cache: "no-store",
         });
-        if (res.ok && active) {
+        if (res.ok && active && !wsActive) {
           const blob = await res.blob();
-          if (active) {
+          if (active && !wsActive) {
             const url = URL.createObjectURL(blob);
             if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
             objectUrl.current = url;
@@ -181,17 +198,68 @@ function Dashboard({
         /* keep last frame on transient error */
       } finally {
         inFlight = false;
-        if (active) {
-          // Immediately schedule the next frame with a 60ms delay for ultra-smooth fluid video
+        if (active && !wsActive) {
           timerId = setTimeout(fetchNext, 60);
         }
       }
     };
 
+    const wsBase = getWsUrl();
+    if (wsBase) {
+      try {
+        const fullWsUrl = `${wsBase}/ws/subscribe?deviceId=${selected}&channel=camera`;
+        ws = new WebSocket(fullWsUrl);
+        ws.binaryType = "blob";
+
+        ws.onopen = () => {
+          if (active) {
+            wsActive = true;
+            setCameraStreamType("ws");
+            if (timerId) clearTimeout(timerId);
+          }
+        };
+
+        ws.onmessage = (event) => {
+          if (active && event.data instanceof Blob) {
+            wsActive = true;
+            setCameraStreamType("ws");
+            const url = URL.createObjectURL(event.data);
+            if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
+            objectUrl.current = url;
+            setFrameSrc(url);
+          }
+        };
+
+        ws.onerror = () => {
+          wsActive = false;
+          setCameraStreamType("polling");
+          if (active && !inFlight) fetchNext();
+        };
+
+        ws.onclose = () => {
+          wsActive = false;
+          setCameraStreamType("polling");
+          if (active && !inFlight) fetchNext();
+        };
+      } catch {
+        wsActive = false;
+        fetchNext();
+      }
+    } else {
+      fetchNext();
+    }
+
     fetchNext();
+
     return () => {
       active = false;
+      wsActive = false;
       if (timerId) clearTimeout(timerId);
+      if (ws) {
+        try {
+          ws.close();
+        } catch (_: unknown) {}
+      }
     };
   }, [selected, streaming]);
 
@@ -228,22 +296,25 @@ function Dashboard({
   useEffect(() => {
     if (!selected || !screenMirroring) {
       setScreenSrc(null);
+      setScreenStreamType("polling");
       return;
     }
     let active = true;
     let timerId: ReturnType<typeof setTimeout> | null = null;
     let inFlight = false;
+    let ws: WebSocket | null = null;
+    let wsActive = false;
 
     const fetchNextScreen = async () => {
-      if (!active || inFlight) return;
+      if (!active || inFlight || wsActive) return;
       inFlight = true;
       try {
         const res = await fetch(`/api/screen/${selected}?t=${Date.now()}`, {
           cache: "no-store",
         });
-        if (res.ok && active) {
+        if (res.ok && active && !wsActive) {
           const blob = await res.blob();
-          if (active) {
+          if (active && !wsActive) {
             const url = URL.createObjectURL(blob);
             if (screenObjectUrl.current) URL.revokeObjectURL(screenObjectUrl.current);
             screenObjectUrl.current = url;
@@ -254,16 +325,68 @@ function Dashboard({
         /* keep last frame on transient error */
       } finally {
         inFlight = false;
-        if (active) {
+        if (active && !wsActive) {
           timerId = setTimeout(fetchNextScreen, 60);
         }
       }
     };
 
+    const wsBase = getWsUrl();
+    if (wsBase) {
+      try {
+        const fullWsUrl = `${wsBase}/ws/subscribe?deviceId=${selected}&channel=screen`;
+        ws = new WebSocket(fullWsUrl);
+        ws.binaryType = "blob";
+
+        ws.onopen = () => {
+          if (active) {
+            wsActive = true;
+            setScreenStreamType("ws");
+            if (timerId) clearTimeout(timerId);
+          }
+        };
+
+        ws.onmessage = (event) => {
+          if (active && event.data instanceof Blob) {
+            wsActive = true;
+            setScreenStreamType("ws");
+            const url = URL.createObjectURL(event.data);
+            if (screenObjectUrl.current) URL.revokeObjectURL(screenObjectUrl.current);
+            screenObjectUrl.current = url;
+            setScreenSrc(url);
+          }
+        };
+
+        ws.onerror = () => {
+          wsActive = false;
+          setScreenStreamType("polling");
+          if (active && !inFlight) fetchNextScreen();
+        };
+
+        ws.onclose = () => {
+          wsActive = false;
+          setScreenStreamType("polling");
+          if (active && !inFlight) fetchNextScreen();
+        };
+      } catch {
+        wsActive = false;
+        fetchNextScreen();
+      }
+    } else {
+      fetchNextScreen();
+    }
+
     fetchNextScreen();
+
     return () => {
       active = false;
+      wsActive = false;
       if (timerId) clearTimeout(timerId);
+      if (ws) {
+        try {
+          ws.close();
+        } catch (_: unknown) {}
+      }
     };
   }, [selected, screenMirroring]);
 
@@ -500,10 +623,22 @@ function Dashboard({
                 </div>
               )}
               {current?.stream_requested && (
-                <span className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-xs font-medium text-white">
-                  <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
-                  LIVE
-                </span>
+                <div className="absolute left-3 top-3 z-10 flex items-center gap-2">
+                  <span className="flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-xs font-medium text-white">
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
+                    LIVE
+                  </span>
+                  {cameraStreamType === "ws" ? (
+                    <span className="flex items-center gap-1.5 rounded-full bg-emerald-950/80 border border-emerald-500/50 px-2.5 py-1 text-[11px] font-medium text-emerald-300 backdrop-blur-md">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      ⚡ WebSocket (Low-Lag)
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5 rounded-full bg-zinc-900/80 border border-zinc-700/50 px-2.5 py-1 text-[11px] font-medium text-zinc-400 backdrop-blur-md">
+                      HTTP Fallback
+                    </span>
+                  )}
+                </div>
               )}
               {frameSrc && (
                 <div className="absolute right-3 top-3 z-10 flex items-center gap-2">
