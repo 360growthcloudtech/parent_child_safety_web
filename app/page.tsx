@@ -216,16 +216,16 @@ function Dashboard({
         ws.binaryType = "blob";
 
         ws.onopen = () => {
-          if (active) {
-            wsActive = true;
-            setCameraStreamType("ws");
-            if (timerId) clearTimeout(timerId);
-          }
+          // Keep polling active until first frame arrives via WebSocket
         };
 
         ws.onmessage = (event) => {
           if (active && event.data instanceof Blob) {
             wsActive = true;
+            if (timerId) {
+              clearTimeout(timerId);
+              timerId = null;
+            }
             setCameraStreamType("ws");
             const url = URL.createObjectURL(event.data);
             if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
@@ -343,16 +343,16 @@ function Dashboard({
         ws.binaryType = "blob";
 
         ws.onopen = () => {
-          if (active) {
-            wsActive = true;
-            setScreenStreamType("ws");
-            if (timerId) clearTimeout(timerId);
-          }
+          // Keep polling active until first frame arrives via WebSocket
         };
 
         ws.onmessage = (event) => {
           if (active && event.data instanceof Blob) {
             wsActive = true;
+            if (timerId) {
+              clearTimeout(timerId);
+              timerId = null;
+            }
             setScreenStreamType("ws");
             const url = URL.createObjectURL(event.data);
             if (screenObjectUrl.current) URL.revokeObjectURL(screenObjectUrl.current);
