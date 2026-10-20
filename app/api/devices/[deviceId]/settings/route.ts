@@ -166,9 +166,11 @@ export async function POST(
 
         const baseUrl =
           process.env.PUBLIC_BASE_URL ?? new URL(request.url).origin;
+        const wsUrl = process.env.NEXT_PUBLIC_WS_URL || "https://parent-child-safety-web.onrender.com";
         await sendPush(dev.fcm_token, {
           action,
           baseUrl,
+          wsUrl,
           token: process.env.INGEST_TOKEN ?? "",
           deviceId,
           facing: dev.camera_facing,

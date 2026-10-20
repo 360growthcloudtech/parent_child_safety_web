@@ -153,7 +153,11 @@ function Dashboard({
       if (!data.ok) throw new Error(data.error ?? "failed");
       setDevices(data.devices as Device[]);
       setError(null);
-      setSelected((prev) => prev ?? data.devices[0]?.id ?? null);
+      setSelected((prev) => {
+        const list = data.devices as Device[];
+        if (prev && list.some((d) => d.id === prev)) return prev;
+        return list[0]?.id ?? null;
+      });
     } catch (e) {
       setError(String(e));
     }
